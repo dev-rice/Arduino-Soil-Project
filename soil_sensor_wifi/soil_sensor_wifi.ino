@@ -5,10 +5,12 @@ char ssid[] = "Apartment";
 char pass[] = "tenretni";
 int status = WL_IDLE_STATUS;
 
+char device_id[] = "vFB218A4E2233052";
+
 const int EXCITATION_PIN = 2;
 const int SERIAL_CONTROL_PIN = 3;
 
-const double POLLING_PERIOD = 25; // In seconds, should be greater than 3
+const double POLLING_PERIOD = 10; // In seconds, should be at least 10
 
 char incomingByte = 0;   // for incoming serial data
 long last_update_millis = 0;
@@ -30,7 +32,7 @@ void setup() {
   digitalWrite(EXCITATION_PIN, HIGH);
   digitalWrite(0, LOW);
   
-  Serial.begin(1200);     // opens serial port, sets data rate to 9600 bps
+  Serial.begin(1200);     // opens serial port, sets data rate to 1200 bps as per the 5TE's spec.
   
   // check for the presence of the shield:
   if (WiFi.status() == WL_NO_SHIELD) {
@@ -82,8 +84,15 @@ void loop() {
     electrical_conductivity = calculateElectricalConductivity(data);
     temperature = calculateTemperature(data);
 
-    tweetData(dielectric_permittivity, electrical_conductivity, temperature);
+    //tweetData(dielectric_permittivity, electrical_conductivity, temperature);
     printData(dielectric_permittivity, electrical_conductivity, temperature);
+    
+    if (sendToPushingBox(dielectric_permittivity, electrical_conductivity, temperature)){
+      Serial.println("Upload successful");
+    }
+    else {
+      Serial.println("Upload failed.");
+    }
     
     Serial.println("Done reading.");
     Serial.println("---------------");
@@ -91,6 +100,53 @@ void loop() {
     cycleSerialLine();
   }
   
+}
+
+boolean sendToPushingBox(double permittivity, double conductivity, double temperature){
+  boolean success = false;
+
+  char permittivity_buffer[6] = {'/0'};
+  char conductivity_buffer[6] = {'/0'};
+  char temperature_buffer[7] = {'/0'};
+  
+  String data = "&permittivity=";
+  data += dtostrf(permittivity,2,2,permittivity_buffer);
+  data += "&conductivity=";
+  data += dtostrf(conductivity,2,2,conductivity_buffer);
+  data += "&temperature=";
+  data += dtostrf(temperature,2,2,temperature_buffer);
+  
+  char data_buffer[data.length()];  
+  data.toCharArray(data_buffer, data.length()+1);
+  
+  //Serial.println(data_buffer);
+  
+  delay(500);
+  
+  Serial.println("\nStarting connection to server...");
+  
+  if (client.connect("api.pushingbox.com", 80)) {
+    Serial.println("connected to server");
+    // Make a HTTP request:
+    //client.println("GET /pushingbox?devid=vFB218A4E2233052&permittivity=1.52&conductivity=23.02 HTTP/1.1");
+    client.print("GET /pushingbox?devid=");
+    client.print(device_id);
+    client.print(data);
+    client.println(" HTTP/1.1");
+    client.println("Host: api.pushingbox.com");
+    client.println("Connection: close");
+    client.println();
+    
+    success = true;
+  }
+  else {
+    success = false;
+  }
+  
+  client.flush();
+  client.stop();
+  
+  return success; 
 }
 
 void tweetData(double permittivity, double conductivity, double temp){

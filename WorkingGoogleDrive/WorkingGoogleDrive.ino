@@ -23,10 +23,12 @@
 
 #include <SPI.h>
 #include <WiFi.h>
+#include <stdlib.h>
 
 char ssid[] = "Apartment"; //  your network SSID (name) 
 char pass[] = "tenretni";    // your network password (use for WPA, or use as key for WEP)
 int keyIndex = 0;            // your network key Index number (needed only for WEP)
+char device_id[] = "vFB218A4E2233052";
 
 int status = WL_IDLE_STATUS;
 // if you don't want to use DNS (and reduce your sketch size)
@@ -70,7 +72,6 @@ void setup() {
 
 void loop() {
   
-  Serial.println("\nStarting connection to server...");
   // if you get a connection, report back via serial:
   /*if (client.connect("api.pushingbox.com", 80)) {
     Serial.println("connected to server");
@@ -86,30 +87,60 @@ void loop() {
     client.println();
   }*/
   
-  sendToPushingBox(1.0, 1.0, 1.0);
-  
+  if (sendToPushingBox(0.00, 0.00, 110.00)){
+    Serial.println("Upload successful");
+  }
+  else {
+    Serial.println("Upload failed.");
+  }
   delay(10000);
 }
 
-void sendToPushingBox(double permittivity, double conductivity, double temperature){
+boolean sendToPushingBox(double permittivity, double conductivity, double temperature){
+  boolean success = false;
+
+  char permittivity_buffer[6] = {'/0'};
+  char conductivity_buffer[6] = {'/0'};
+  char temperature_buffer[7] = {'/0'};
+  
+  String data = "&permittivity=";
+  data += dtostrf(permittivity,2,2,permittivity_buffer);
+  data += "&conductivity=";
+  data += dtostrf(conductivity,2,2,conductivity_buffer);
+  data += "&temperature=";
+  data += dtostrf(temperature,2,2,temperature_buffer);
+  
+  char data_buffer[data.length()];  
+  data.toCharArray(data_buffer, data.length()+1);
+  
+  //Serial.println(data_buffer);
+  
+  delay(500);
+  
+  Serial.println("\nStarting connection to server...");
+  
   if (client.connect("api.pushingbox.com", 80)) {
     Serial.println("connected to server");
     // Make a HTTP request:
     //client.println("GET /pushingbox?devid=vFB218A4E2233052&permittivity=1.52&conductivity=23.02 HTTP/1.1");
-    client.print("GET /pushingbox?devid=vFB218A4E2233052");
-    client.print("&permittivity=");
-    client.print(random(100));
-    client.print("&conductivity=");
-    client.print(random(100));
-    client.print("&temperature=");
-    client.print(random(100));
+    client.print("GET /pushingbox?devid=");
+    client.print(device_id);
+    client.print(data);
     client.println(" HTTP/1.1");
     client.println("Host: api.pushingbox.com");
     client.println("Connection: close");
     client.println();
+    
+    success = true;
   }
-   client.flush();
-   client.stop();
+  else {
+    success = false;
+  }
+  
+  client.flush();
+  client.stop();
+  
+  return success; 
 }
 
 void printWifiStatus() {
