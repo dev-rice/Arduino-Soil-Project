@@ -39,10 +39,11 @@ void Decagon5TE::readData(){
 		++data_index;
 		Serial.print(incoming_byte);
 	}
-	
-	dielectric_permittivity = calculateDielectricPermittivty(data);
-    	electrical_conductivity = calculateElectricalConductivity(data);
-   	temperature = calculateTemperature(data);
+
+	//Something is wrong with these	
+	//dielectric_permittivity = calculateDielectricPermittivty(data);
+    	//electrical_conductivity = calculateElectricalConductivity(data);
+   	//temperature = calculateTemperature(data);
 	
 	cycleSerialLine();
 
