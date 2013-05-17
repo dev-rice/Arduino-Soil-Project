@@ -6,21 +6,22 @@
 
 #include "Arduino.h"
 #include "Decagon5TE.h"
+#include <stdlib.h>
 
 Decagon5TE::Decagon5TE(){
 	
 }
 
 Decagon5TE::Decagon5TE(int excitation_pin, int serial_control_pin){
-	this->excitation_pin = excitation_pin;
-	this->serial_control_pin = serial_control_pin;
+    this->excitation_pin = excitation_pin;
+    this->serial_control_pin = serial_control_pin;
 
-	ready_for_update = true;
+    ready_for_update = true;
 
-	pinMode(excitation_pin, OUTPUT);
-	pinMode(serial_control_pin, OUTPUT);
+    pinMode(excitation_pin, OUTPUT);
+    pinMode(serial_control_pin, OUTPUT);
 	
-	digitalWrite(excitation_pin, HIGH);
+    digitalWrite(excitation_pin, HIGH);
 	
 }
 
@@ -41,9 +42,9 @@ void Decagon5TE::readData(){
 	}
 
 	//Something is wrong with these	
-	//dielectric_permittivity = calculateDielectricPermittivty(data);
-    	//electrical_conductivity = calculateElectricalConductivity(data);
-   	//temperature = calculateTemperature(data);
+	dielectric_permittivity = calculateDielectricPermittivty(data);
+    electrical_conductivity = calculateElectricalConductivity(data);
+   	temperature = calculateTemperature(data);
 	
 	cycleSerialLine();
 
@@ -96,6 +97,7 @@ double Decagon5TE::calculateDielectricPermittivty(char data[]) {
   else {
     return 4095;
   }
+    //return 42;
 }
 double Decagon5TE::calculateElectricalConductivity(char data[]) {
   char conductivity[4] = {'/0'};
@@ -128,6 +130,7 @@ double Decagon5TE::calculateElectricalConductivity(char data[]) {
   else {
     return 1023;
   }
+    //return 42;
 }
 
 double Decagon5TE::calculateTemperature(char data[]) {
@@ -161,4 +164,5 @@ double Decagon5TE::calculateTemperature(char data[]) {
   
   double celsius = (double)(raw_temperature - 400) / 10.0;
   return celsius;
+    //return 42;
 }
