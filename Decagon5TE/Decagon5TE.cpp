@@ -50,18 +50,22 @@ void Decagon5TE::readData(){
 
 void Decagon5TE::exciteSensor(){
 	Serial.println("Exciting Sensor");	
+	
 	digitalWrite(excitation_pin, LOW);
 	delay(200);
 	digitalWrite(excitation_pin, HIGH);
+	
 	Serial.println("Done.");
 }
 
 void Decagon5TE::cycleSerialLine(){
 	Serial.println("Cycling Serial Line...");
+	
 	digitalWrite(serial_control_pin, HIGH);
 	delay(2500);
 	digitalWrite(serial_control_pin, LOW);
 	ready_for_update = true;
+	
 	Serial.println("Done.");
 }
 

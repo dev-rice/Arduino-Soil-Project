@@ -1,0 +1,5 @@
+Decagon5TE			KEYWORD1
+getDielectricPermittivity	KEYWORD2
+getElectricalConductivity	KEYWORD2
+getTemperature			KEYWORD2
+
