@@ -13,16 +13,17 @@ Decagon5TE::Decagon5TE(){
 }
 
 Decagon5TE::Decagon5TE(int excitation_pin, int serial_control_pin){
-    this->excitation_pin = excitation_pin;
-    this->serial_control_pin = serial_control_pin;
+	this->excitation_pin = excitation_pin;
+	this->serial_control_pin = serial_control_pin;
     
-    ready_for_update = true;
+    	last_update_millis = 0;
+	ready_for_update = true;
     
-    pinMode(excitation_pin, OUTPUT);
-    pinMode(serial_control_pin, OUTPUT);
+	pinMode(excitation_pin, OUTPUT);
+	pinMode(serial_control_pin, OUTPUT);
 	
-    digitalWrite(excitation_pin, HIGH);
-	
+	digitalWrite(excitation_pin, HIGH);
+    		
 }
 
 void Decagon5TE::readData(){
@@ -38,11 +39,13 @@ void Decagon5TE::readData(){
 		incoming_byte = Serial.read();
 		data[data_index] = incoming_byte;
 		++data_index;
-		Serial.print(incoming_byte);
+		if (DEBUG) {
+			Serial.print(incoming_byte);
+		}
 	}
     
 	dielectric_permittivity = calculateDielectricPermittivty(data);
-    electrical_conductivity = calculateElectricalConductivity(data);
+	electrical_conductivity = calculateElectricalConductivity(data);
    	temperature = calculateTemperature(data);
 	
 	cycleSerialLine();
@@ -50,24 +53,32 @@ void Decagon5TE::readData(){
 }
 
 void Decagon5TE::exciteSensor(){
-	Serial.println("Exciting Sensor");
-	
+	if (DEBUG) {
+		Serial.println("Exciting Sensor...");
+	}	
+
 	digitalWrite(excitation_pin, LOW);
 	delay(200);
 	digitalWrite(excitation_pin, HIGH);
 	
-	Serial.println("Done.");
+	if (DEBUG) {
+		Serial.println("Done.");
+	}
 }
 
 void Decagon5TE::cycleSerialLine(){
-	Serial.println("Cycling Serial Line...");
+	if (DEBUG) {
+		Serial.println("Cycling Serial Line...");
+	}
 	
 	digitalWrite(serial_control_pin, HIGH);
 	delay(2500);
 	digitalWrite(serial_control_pin, LOW);
 	ready_for_update = true;
 	
-	Serial.println("Done.");
+	if (DEBUG) {
+		Serial.println("Done.");
+	}
 }
 
 double Decagon5TE::calculateDielectricPermittivty(char data[]) {
@@ -94,7 +105,6 @@ double Decagon5TE::calculateDielectricPermittivty(char data[]) {
     else {
         return 4095;
     }
-    //return 42;
 }
 double Decagon5TE::calculateElectricalConductivity(char data[]) {
     String conductivity = "";

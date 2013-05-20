@@ -20,11 +20,14 @@ class Decagon5TE {
 		double getTemperature() {return temperature;}
 
 	private:
+		const static boolean DEBUG = false;
+		
 		int excitation_pin;
 		int serial_control_pin;		
-
-		boolean ready_for_update;		
-
+		
+		int last_update_millis;
+		boolean ready_for_reading;		
+		
 		double dielectric_permittivity;
 		double electrical_conductivity;
 		double temperature;

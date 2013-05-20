@@ -1,178 +1,186 @@
-const int EXCITATION_PIN = 2;
-const int SERIAL_CONTROL_PIN = 3;
+#include <WiFi.h>
+#include <Decagon5TE.h>
 
-const double POLLING_PERIOD = 5; // In seconds, should be greater than 3
+char ssid[] = "Apartment";
+char pass[] = "tenretni";
+int status = WL_IDLE_STATUS;
 
-char incomingByte = 0;   // for incoming serial data
+char device_id[] = "vFB218A4E2233052";
+
 long last_update_millis = 0;
 
-boolean due_for_update = true;
+WiFiClient client;
 
-char data[20] = {0};
-int data_index = 0;
-
-double dielectric_permittivity = 0;
-double electrical_conductivity = 0;
-double temperature = 0;
+Decagon5TE sensor(2,3);
 
 void setup() {
-  pinMode(SERIAL_CONTROL_PIN, OUTPUT);
-  pinMode(EXCITATION_PIN, OUTPUT);
   
-  digitalWrite(EXCITATION_PIN, HIGH);
-  digitalWrite(0, LOW);
+  Serial.begin(1200);     // opens serial port, sets data rate to 1200 bps as per the 5TE's spec.
   
-  Serial.begin(1200);     // opens serial port, sets data rate to 9600 bps
+  // check for the presence of the shield:
+  if (WiFi.status() == WL_NO_SHIELD) {
+    Serial.println("WiFi shield not present"); 
+    // don't continue:
+    while(true);
+  } 
   
-  cycleSerialLine();
+ // attempt to connect to Wifi network:
+  while (status != WL_CONNECTED) { 
+    Serial.print("Attempting to connect to WPA SSID: ");
+    Serial.println(ssid);
+    // Connect to WPA/WPA2 network:    
+    status = WiFi.begin(ssid, pass);
+
+    // wait 10 seconds for connection:
+    delay(10000);
+  }
+   
+  // you're connected now, so print out the data:
+  Serial.print("You're connected to the network");
+  printCurrentNet();
+  printWifiData();
   
   last_update_millis = millis();
 }
 
 void loop() {
-  // Check for received data only when it's time
-  if ((millis() - last_update_millis) >= (1000 * POLLING_PERIOD) && due_for_update == true){
-    last_update_millis = millis();
-    due_for_update = false;
-    
-    exciteSensor();  
-    
-    while (Serial.available() > 0) {
-      // read the incoming byte:
-      incomingByte = Serial.read();
-      data[data_index] = incomingByte;
-      ++data_index;
-      //Serial.print(incomingByte);
-    }
-    
-    dielectric_permittivity = calculateDielectricPermittivity(data);
-    electrical_conductivity = calculateElectricalConductivity(data);
-    temperature = calculateTemperature(data);
-
-    Serial.print("\tDielectric Permittivity: ");
-    Serial.println(dielectric_permittivity);
-    
-    Serial.print("\tElectrical Conductivity: ");
-    Serial.print(electrical_conductivity);
-    Serial.println(" dS/m");
-    
-    Serial.print("\tTemperature: ");
-    Serial.print(temperature);
-    Serial.println(" C");
-    
-    Serial.println("Done reading.");
-    Serial.println("---------------");
-    
-    cycleSerialLine();
-    
-    data_index = 0;
-  }
-}
-
-void cycleSerialLine(){
-  digitalWrite(SERIAL_CONTROL_PIN, HIGH);
-  delay(2500);
-  digitalWrite(SERIAL_CONTROL_PIN, LOW);
-  Serial.println("Cycled Serial Line.");
-  due_for_update = true;
-}
-
-void exciteSensor(){
-  digitalWrite(EXCITATION_PIN, LOW);
-  delay(200);
-  digitalWrite(EXCITATION_PIN, HIGH);
-}
-
-double calculateDielectricPermittivity(char data[]) {
-  char permittivity[4] = {'/0'};
-  int perm_index = 0;
-  int index = 0;
+  sensor.readData();  
   
-  int raw_dielectric = 0;
+  double dielectric_permittivity = sensor.getDielectricPermittivity();
+  double electrical_conductivity = sensor.getElectricalConductivity();
+  double temperature = sensor.getTemperature();
   
-  while (data[index] != ' '){
-    ++index;
-  }
-  ++index;
-  
-  while (data[index] != ' '){
-    permittivity[perm_index] = data[index];
-    ++perm_index;
-    ++index;
-  }
-  
-  raw_dielectric = atoi(permittivity);
-  
-  if (raw_dielectric != 4095){
-    return (double)raw_dielectric / 50.0;
+  printData(dielectric_permittivity, electrical_conductivity, temperature);
+    
+  if (sendToPushingBox(dielectric_permittivity, electrical_conductivity, temperature)){
+    Serial.println("Upload successful");
   }
   else {
-    return 4095;
-  }
+    Serial.println("Upload failed.");
+  } 
+  
+  delay(10000);
 }
 
-double calculateElectricalConductivity(char data[]) {
-  char conductivity[4] = {'/0'};
-  int cond_index = 0;
-  int index = 0;
+boolean sendToPushingBox(double permittivity, double conductivity, double temperature){
+  boolean success = false;
+
+  char permittivity_buffer[6] = {'/0'};
+  char conductivity_buffer[6] = {'/0'};
+  char temperature_buffer[7] = {'/0'};
   
-  int raw_conductivity = 0;
+  String data = "&permittivity=";
+  data += dtostrf(permittivity,2,2,permittivity_buffer);
+  data += "&conductivity=";
+  data += dtostrf(conductivity,2,2,conductivity_buffer);
+  data += "&temperature=";
+  data += dtostrf(temperature,2,2,temperature_buffer);
   
-  for (int i = 0; i < 2; ++i){
-    while (data[index] != ' '){
-      ++index;
-    }
-    ++index;
-  }
+  char data_buffer[data.length()];  
+  data.toCharArray(data_buffer, data.length()+1);
   
-  while (data[index] != ' '){
-    conductivity[cond_index] = data[index];
-    ++cond_index;
-    ++index;
-  }
+  //Serial.println(data_buffer);
   
-  raw_conductivity = atoi(conductivity);
+  delay(500);
   
-  if (raw_conductivity <= 700){
-    return (double)raw_conductivity / 100.0;
-  }
-  else if (raw_conductivity != 1023) {
-    return (double)(700 + 5 * (raw_conductivity - 700)) / 100;
+  Serial.println("\nStarting connection to server...");
+  
+  if (client.connect("api.pushingbox.com", 80)) {
+    Serial.println("connected to server");
+    // Make a HTTP request:
+    //client.println("GET /pushingbox?devid=vFB218A4E2233052&permittivity=1.52&conductivity=23.02 HTTP/1.1");
+    client.print("GET /pushingbox?devid=");
+    client.print(device_id);
+    client.print(data);
+    client.println(" HTTP/1.1");
+    client.println("Host: api.pushingbox.com");
+    client.println("Connection: close");
+    client.println();
+    
+    success = true;
   }
   else {
-    return 1023;
+    success = false;
   }
+  
+  client.flush();
+  client.stop();
+  
+  return success; 
 }
 
-double calculateTemperature(char data[]) {
-  char temperature[4] = {'/0'};
-  int temp_index = 0;
-  int index = 0;
-  
-  int raw_temperature = 0;
-  
-  for (int i = 0; i < 3; ++i){
-    while (data[index] != ' '){
-      ++index;
-    }
-    ++index;
-  }
-  
-  while (data[index] != 'z'){
-    temperature[temp_index] = data[index];
-    ++temp_index;
-    ++index;
-  }
-  
-  raw_temperature = atoi(temperature);
-  
-  if (raw_temperature > 900 && raw_temperature != 1023){
-    raw_temperature = 900.0 + 5.0 * (raw_temperature - 900.0);
-  }
-  else if (raw_temperature == 1023) {
-    return 1023;
-  }
-  
-  double celsius = (double)(raw_temperature - 400) / 10.0;
-  return celsius;
+void printData(double permittivity, double conductivity, double temp){
+  Serial.print("\tDielectric Permittivity: ");
+  Serial.println(permittivity);
+    
+  Serial.print("\tElectrical Conductivity: ");
+  Serial.print(conductivity);
+  Serial.println(" dS/m");
+    
+  Serial.print("\tTemperature: ");
+  Serial.print(temp);
+  Serial.println(" C");  
 }
+
+//---------------------
+// Wifi Stuff
+//---------------------
+
+void printWifiData() {
+  // print your WiFi shield's IP address:
+  IPAddress ip = WiFi.localIP();
+    Serial.print("IP Address: ");
+  Serial.println(ip);
+  Serial.println(ip);
+  
+  // print your MAC address:
+  byte mac[6];  
+  WiFi.macAddress(mac);
+  Serial.print("MAC address: ");
+  Serial.print(mac[5],HEX);
+  Serial.print(":");
+  Serial.print(mac[4],HEX);
+  Serial.print(":");
+  Serial.print(mac[3],HEX);
+  Serial.print(":");
+  Serial.print(mac[2],HEX);
+  Serial.print(":");
+  Serial.print(mac[1],HEX);
+  Serial.print(":");
+  Serial.println(mac[0],HEX);
+ 
+}
+
+void printCurrentNet() {
+  // print the SSID of the network you're attached to:
+  Serial.print("SSID: ");
+  Serial.println(WiFi.SSID());
+
+  // print the MAC address of the router you're attached to:
+  byte bssid[6];
+  WiFi.BSSID(bssid);    
+  Serial.print("BSSID: ");
+  Serial.print(bssid[5],HEX);
+  Serial.print(":");
+  Serial.print(bssid[4],HEX);
+  Serial.print(":");
+  Serial.print(bssid[3],HEX);
+  Serial.print(":");
+  Serial.print(bssid[2],HEX);
+  Serial.print(":");
+  Serial.print(bssid[1],HEX);
+  Serial.print(":");
+  Serial.println(bssid[0],HEX);
+
+  // print the received signal strength:
+  long rssi = WiFi.RSSI();
+  Serial.print("signal strength (RSSI):");
+  Serial.println(rssi);
+
+  // print the encryption type:
+  byte encryption = WiFi.encryptionType();
+  Serial.print("Encryption Type:");
+  Serial.println(encryption,HEX);
+  Serial.println();
+}
+
