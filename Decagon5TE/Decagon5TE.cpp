@@ -15,19 +15,38 @@ Decagon5TE::Decagon5TE(){
 Decagon5TE::Decagon5TE(int excitation_pin, int serial_control_pin){
 	this->excitation_pin = excitation_pin;
 	this->serial_control_pin = serial_control_pin;
+    update_period = 60000;
     
-    	last_update_millis = 0;
-	ready_for_update = true;
+    last_update_millis = 0;
+	ready_for_reading = true;
     
 	pinMode(excitation_pin, OUTPUT);
 	pinMode(serial_control_pin, OUTPUT);
 	
 	digitalWrite(excitation_pin, HIGH);
-    		
+    
+}
+
+Decagon5TE::Decagon5TE(int excitation_pin, int serial_control_pin, unsigned long update_period){
+	this->excitation_pin = excitation_pin;
+	this->serial_control_pin = serial_control_pin;
+    this->update_period = update_period;
+    
+    last_update_millis = 0;
+	ready_for_reading = true;
+    
+	pinMode(excitation_pin, OUTPUT);
+	pinMode(serial_control_pin, OUTPUT);
+	
+	digitalWrite(excitation_pin, HIGH);
+    
 }
 
 void Decagon5TE::readData(){
-	
+    
+    last_update_millis = millis();
+    ready_for_reading = false;
+    
 	char data[20] = {'/0'};
 	int data_index = 0;
 	
@@ -52,11 +71,29 @@ void Decagon5TE::readData(){
     
 }
 
+boolean Decagon5TE::isReadyForReading() {
+    if (DEBUG){
+        Serial.print("millis: ");
+        Serial.println(millis());
+        
+        Serial.print("last update: ");
+        Serial.println(last_update_millis);
+        
+        Serial.print("update period: ");
+        Serial.println(millis() - last_update_millis);
+        
+        Serial.print("ready for reading: ");
+        Serial.println(ready_for_reading);
+    }
+    
+    return ((millis() - last_update_millis) >= update_period) && ready_for_reading ;
+}
+
 void Decagon5TE::exciteSensor(){
 	if (DEBUG) {
 		Serial.println("Exciting Sensor...");
-	}	
-
+	}
+    
 	digitalWrite(excitation_pin, LOW);
 	delay(200);
 	digitalWrite(excitation_pin, HIGH);
@@ -74,7 +111,7 @@ void Decagon5TE::cycleSerialLine(){
 	digitalWrite(serial_control_pin, HIGH);
 	delay(2500);
 	digitalWrite(serial_control_pin, LOW);
-	ready_for_update = true;
+	ready_for_reading = true;
 	
 	if (DEBUG) {
 		Serial.println("Done.");
