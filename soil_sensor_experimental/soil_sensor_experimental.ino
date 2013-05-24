@@ -7,8 +7,9 @@ Decagon5TE sensor(2, 3, 15000);
 const byte SD_CHIP_SELECT = 4;
 const byte RTC_CHIP_SELECT = 8;
 
-char TO_UPLOAD_FILENAME[] = "test.csv";
-char ARCHIVE_FILENAME[] = "dtest.csv";
+char TO_UPLOAD_FILENAME[] = "toUpload.txt";
+char FAILED_UPLOAD_FILENAME[] = "fUpload.txt";
+char ARCHIVE_FILENAME[] = "datalog.csv";
 
 char ssid[] = "Apartment";
 char pass[] = "tenretni";
@@ -20,10 +21,14 @@ WiFiClient client;
 
 void setup(){
   Serial.begin(1200); // opens serial port, sets data rate to 1200 bps as per the 5TE's spec.
-
-  //connectToNetwork(ssid, pass);
-
+  
+  connectToNetwork(ssid, pass);
+  RTC_init();
   SD_init();
+  
+  SD.remove(TO_UPLOAD_FILENAME);
+  SD.remove(FAILED_UPLOAD_FILENAME);
+  SD.remove(ARCHIVE_FILENAME);
 
   Serial.println(F("-------------------------------"));
 }
@@ -32,27 +37,25 @@ void loop() {
   if (sensor.isReadyForReading()){
     sensor.readData();
 
-    //SD_init();
-    writeToSDCard(sensor);
+    writeToSDCard(sensor, TO_UPLOAD_FILENAME);
+    writeToSDCard(sensor, ARCHIVE_FILENAME);
     delay(500);
 
     boolean connected = connectToNetwork(ssid, pass);
 
     if (connected){
       uploadData();
-      //logData();
-      //SD.remove(TO_UPLOAD_FILENAME);
     }
 
     Serial.println(F("-------------------------------"));
   }
-
+  SPI.setDataMode(SPI_MODE1);
+  Serial.println(ReadTimeDate());
   delay(1000);
 }
 
-boolean writeToSDCard(Decagon5TE sensor_data){
-  RTC_init();
-
+boolean writeToSDCard(Decagon5TE sensor_data, char filename[]){
+  SPI.setDataMode(SPI_MODE1);
   String dataString = "";
 
   dataString += ReadTimeDate();
@@ -64,13 +67,13 @@ boolean writeToSDCard(Decagon5TE sensor_data){
   dataString += doubleToString(sensor_data.getTemperature());
   dataString += ",";
 
-  Serial.println(F("I'm going to write to the SD card"));
+  Serial.print(F("I'm going to write to "));
+  Serial.println(filename);
 
-  //SD_init();
   SPI.setDataMode(SPI_MODE0);
   // open the file. note that only one file can be open at a time, 
   // so you have to close this one before opening another.
-  File dataFile = SD.open(TO_UPLOAD_FILENAME, FILE_WRITE);
+  File dataFile = SD.open(filename, FILE_WRITE);
 
   delay(500);
 
@@ -90,77 +93,132 @@ boolean writeToSDCard(Decagon5TE sensor_data){
     return false;
   }
 
-//SPI.setDataMode(SPI_MODE1);
 }
 
-void logData(){
-  //SD_init();
-  File to_upload_file = SD.open(TO_UPLOAD_FILENAME, FILE_READ);
-  File log_file = SD.open(ARCHIVE_FILENAME, FILE_WRITE);
+boolean writeToSDCard(String permittivity, String conductivity, String temperature, char filename[]){
+  SPI.setDataMode(SPI_MODE1);
+
+  String dataString = "";
+
+  dataString += ReadTimeDate();
+  dataString += ",";
+  dataString += permittivity;
+  dataString += ",";
+  dataString += conductivity;
+  dataString += ",";
+  dataString += temperature;
+  dataString += ",";
+
+  Serial.print(F("I'm going to write to "));
+  Serial.println(filename);
+
+  SPI.setDataMode(SPI_MODE0);
+  // open the file. note that only one file can be open at a time, 
+  // so you have to close this one before opening another.
+  File dataFile = SD.open(filename, FILE_WRITE);
 
   delay(500);
 
-  if (to_upload_file && log_file){
-    while (to_upload_file.available()){
-      log_file.print((char)to_upload_file.read());
+  // if the file is available, write to it:
+  if (dataFile) {
+    dataFile.println(dataString);
+    Serial.println(dataString);
+    dataFile.close();
+    return true;
+    // print to the serial port too:
+  }
+  // if the file isn't open, pop up an error:
+  else {
+    Serial.print(F("error opening "));
+    Serial.println(filename);
+    dataFile.close();
+    return false;
+  }
+
+}
+
+void appendFailedUploads(){
+  SD.remove(TO_UPLOAD_FILENAME);
+  File to_upload_file = SD.open(TO_UPLOAD_FILENAME, FILE_WRITE);
+  File failed_upload_file = SD.open(FAILED_UPLOAD_FILENAME, FILE_READ);
+
+  delay(500);
+
+  if (to_upload_file && failed_upload_file){
+    while (failed_upload_file.available()){
+      to_upload_file.print((char)failed_upload_file.read());
     }
   }
 
   to_upload_file.close();
-  log_file.close();
+  failed_upload_file.close();
+  SD.remove(FAILED_UPLOAD_FILENAME);
 }
 
 void uploadData(){
   File to_upload_file = SD.open(TO_UPLOAD_FILENAME, FILE_READ);
-
+  
   delay(500);
-
   if (to_upload_file) {
-    while(to_upload_file.read() != ',');
-    String permittivity = "";
-    String conductivity = "";
-    String temperature = "";
-    while(char data = to_upload_file.read()){
-      if (data == ','){
+    while (to_upload_file.available()){
+      
+      Serial.print("Reading from ");
+      Serial.println(TO_UPLOAD_FILENAME);
+      
+      while(to_upload_file.read() != ',' && to_upload_file.available());
+      
+      if (!to_upload_file.available()){
+        Serial.println("Reached end of file.");
         break;
       }
-      permittivity += data;
-    }
-    Serial.print(F("Permittivity: "));
-    Serial.println(permittivity);
-    
-    while(char data = to_upload_file.read()){
-      if (data == ','){
-        break;
+      
+      String permittivity = "";
+      String conductivity = "";
+      String temperature = "";
+      
+      while(char data = to_upload_file.read()){
+        if (data == ','){
+          break;
+        }
+        permittivity += data;
       }
-      conductivity += data;
-    }
-
-    Serial.print(F("Conductivity: "));
-    Serial.println(conductivity);
-    
-    while(char data = to_upload_file.read()){
-      if (data == ','){
-        break;
+      Serial.print(F("Permittivity: "));
+      Serial.println(permittivity);
+      
+      while(char data = to_upload_file.read()){
+        if (data == ','){
+          break;
+        }
+        conductivity += data;
       }
-    temperature += data;
-    }
-    Serial.print(F("Temperature: "));
-    Serial.println(temperature);
+  
+      Serial.print(F("Conductivity: "));
+      Serial.println(conductivity);
+      
+      while(char data = to_upload_file.read()){
+        if (data == ','){
+          break;
+        }
+      temperature += data;
+      }
+      Serial.print(F("Temperature: "));
+      Serial.println(temperature);
+  
+      String data = "&permittivity=";
+      data += permittivity;
+      data += "&conductivity=";
+      data += conductivity;
+      data += "&temperature=";
+      data += temperature;
 
-    String data = "&permittivity=";
-    data += permittivity;
-    data += "&conductivity=";
-    data += conductivity;
-    data += "&temperature=";
-    data += temperature;
-
-    if (sendToPushingBox(data)){
-      to_upload_file.close();
-      logData();
-      SD.remove(TO_UPLOAD_FILENAME);
+      if (!sendToPushingBox(data)){
+        writeToSDCard(permittivity, conductivity, temperature, FAILED_UPLOAD_FILENAME);
+      }
     }
   }
+  to_upload_file.close();
+  
+  appendFailedUploads();
 }
 
 boolean sendToPushingBox(String data) {
@@ -173,7 +231,7 @@ boolean sendToPushingBox(String data) {
 
   if (client.connect("api.pushingbox.com", 80)) {
     Serial.println(F("connected to server"));
-    // Make a HTTP request:
+    // Make a HTTP request of the form:
     //client.println("GET /pushingbox?devid=vFB218A4E2233052&permittivity=1.52&conductivity=23.02 HTTP/1.1");
     client.print("GET /pushingbox?devid=");
     client.print(device_id);
