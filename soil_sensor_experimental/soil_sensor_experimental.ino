@@ -11,8 +11,6 @@ char TO_UPLOAD_FILENAME[] = "toUpload.txt";
 char FAILED_UPLOAD_FILENAME[] = "fUpload.txt";
 char ARCHIVE_FILENAME[] = "datalog.csv";
 
-char ssid[] = "Apartment";
-char pass[] = "tenretni";
 int status = WL_IDLE_STATUS;
 
 char device_id[] = "vFB218A4E2233052";
@@ -22,9 +20,10 @@ WiFiClient client;
 void setup(){
   Serial.begin(1200); // opens serial port, sets data rate to 1200 bps as per the 5TE's spec.
   
-  connectToNetwork(ssid, pass);
   RTC_init();
   SD_init();
+  
+  //connectToNetwork("Apartment", "tenretni");
   
   SD.remove(TO_UPLOAD_FILENAME);
   SD.remove(FAILED_UPLOAD_FILENAME);
@@ -35,37 +34,28 @@ void setup(){
 
 void loop() {
   if (sensor.isReadyForReading()){
-    sensor.readData();
+    //sensor.setReadingTime(ReadTimeDate());
+    sensor.readData(ReadTimeDate());
 
-    writeToSDCard(sensor, TO_UPLOAD_FILENAME);
-    writeToSDCard(sensor, ARCHIVE_FILENAME);
+    writeToSDCard(sensor.getData(), TO_UPLOAD_FILENAME);
+    writeToSDCard(sensor.getData(), ARCHIVE_FILENAME);
     delay(500);
 
-    boolean connected = connectToNetwork(ssid, pass);
-
-    if (connected){
-      uploadData();
+    if (connectToNetwork("Apartment", "tenretni")){
+      readToUpload();
+      
+      //uploadData();
     }
 
     Serial.println(F("-------------------------------"));
   }
-  SPI.setDataMode(SPI_MODE1);
+
   Serial.println(ReadTimeDate());
   delay(1000);
 }
 
-boolean writeToSDCard(Decagon5TE sensor_data, char filename[]){
+boolean writeToSDCard(String dataString, char filename[]){
   SPI.setDataMode(SPI_MODE1);
-  String dataString = "";
-
-  dataString += ReadTimeDate();
-  dataString += ",";
-  dataString += doubleToString(sensor_data.getDielectricPermittivity());
-  dataString += ",";
-  dataString += doubleToString(sensor_data.getElectricalConductivity());
-  dataString += ",";
-  dataString += doubleToString(sensor_data.getTemperature());
-  dataString += ",";
 
   Serial.print(F("I'm going to write to "));
   Serial.println(filename);
@@ -95,52 +85,13 @@ boolean writeToSDCard(Decagon5TE sensor_data, char filename[]){
 
 }
 
-boolean writeToSDCard(String permittivity, String conductivity, String temperature, char filename[]){
-  SPI.setDataMode(SPI_MODE1);
-
-  String dataString = "";
-
-  dataString += ReadTimeDate();
-  dataString += ",";
-  dataString += permittivity;
-  dataString += ",";
-  dataString += conductivity;
-  dataString += ",";
-  dataString += temperature;
-  dataString += ",";
-
-  Serial.print(F("I'm going to write to "));
-  Serial.println(filename);
-
-  SPI.setDataMode(SPI_MODE0);
-  // open the file. note that only one file can be open at a time, 
-  // so you have to close this one before opening another.
-  File dataFile = SD.open(filename, FILE_WRITE);
-
-  delay(500);
-
-  // if the file is available, write to it:
-  if (dataFile) {
-    dataFile.println(dataString);
-    Serial.println(dataString);
-    dataFile.close();
-    return true;
-    // print to the serial port too:
-  }
-  // if the file isn't open, pop up an error:
-  else {
-    Serial.print(F("error opening "));
-    Serial.println(filename);
-    dataFile.close();
-    return false;
-  }
-
-}
-
 void appendFailedUploads(){
+  Serial.print("Deleting ");
+  Serial.println(TO_UPLOAD_FILENAME);
   SD.remove(TO_UPLOAD_FILENAME);
-  File to_upload_file = SD.open(TO_UPLOAD_FILENAME, FILE_WRITE);
+  
   File failed_upload_file = SD.open(FAILED_UPLOAD_FILENAME, FILE_READ);
+  File to_upload_file = SD.open(TO_UPLOAD_FILENAME, FILE_WRITE);
 
   delay(500);
 
@@ -149,10 +100,33 @@ void appendFailedUploads(){
       to_upload_file.print((char)failed_upload_file.read());
     }
   }
+  else {
+    Serial.println("Failed to open the files.");
+  }
 
   to_upload_file.close();
   failed_upload_file.close();
   SD.remove(FAILED_UPLOAD_FILENAME);
+}
+
+void readToUpload() {
+  File to_upload_file = SD.open(TO_UPLOAD_FILENAME, FILE_READ);
+  if (to_upload_file){
+    Serial.print("Reading from ");
+    Serial.println(TO_UPLOAD_FILENAME);
+    while (to_upload_file.available()){
+      Serial.print((char)to_upload_file.read());
+    }
+  }
+  else {
+    Serial.print("Can't open ");
+    Serial.println(TO_UPLOAD_FILENAME);
+  }
+  to_upload_file.close();
+  SD.remove(TO_UPLOAD_FILENAME);
+}
+
+double parseDouble(){
 }
 
 void uploadData(){
@@ -165,16 +139,26 @@ void uploadData(){
       Serial.print("Reading from ");
       Serial.println(TO_UPLOAD_FILENAME);
       
-      while(to_upload_file.read() != ',' && to_upload_file.available());
+      String timestamp = "";
+      String permittivity = "";
+      String conductivity = "";
+      String temperature = "";
+      
+      while(char data = to_upload_file.read() != ',' && to_upload_file.available()){
+        if (data == ',' || !to_upload_file.available()){
+          break;
+        }
+        Serial.print((int)data);
+        timestamp += data;
+      }
       
       if (!to_upload_file.available()){
         Serial.println("Reached end of file.");
         break;
       }
       
-      String permittivity = "";
-      String conductivity = "";
-      String temperature = "";
+      Serial.print(F("Timestamp: "));
+      Serial.println(timestamp);
       
       while(char data = to_upload_file.read()){
         if (data == ','){
@@ -211,8 +195,9 @@ void uploadData(){
       data += "&temperature=";
       data += temperature;
 
-      if (!sendToPushingBox(data)){
-        writeToSDCard(permittivity, conductivity, temperature, FAILED_UPLOAD_FILENAME);
+      if (false){
+        String failedUploadString = permittivity + "," + conductivity + "," + temperature;
+        writeToSDCard(failedUploadString, FAILED_UPLOAD_FILENAME);
       }
     }
   }
@@ -270,7 +255,7 @@ boolean connectToNetwork(char ssid[], char password[]){
     Serial.print(F("Attempting to connect to WPA SSID: "));
     Serial.println(ssid);
     // Connect to WPA/WPA2 network:
-    status = WiFi.begin(ssid, pass);
+    status = WiFi.begin(ssid, password);
     ++failures;
   }
   if (status) {
@@ -317,6 +302,7 @@ boolean SD_init(){
 }
 
 String ReadTimeDate(){
+  SPI.setDataMode(SPI_MODE1);
   String temp;
   int TimeDate [7]; //second,minute,hour,null,day,month,year
   for(int i=0; i<=6;i++){

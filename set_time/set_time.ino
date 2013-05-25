@@ -6,7 +6,7 @@ void setup() {
   RTC_init();
   //day(1-31), month(1-12), year(0-99), hour(0-23), minute(0-59), second(0-59)
 //  SPI.setDataMode(SPI_MODE1);
-  SetTimeDate(23,5,13,17,29,00); 
+  SetTimeDate(23,6,13,1,46,00); 
 }
 
 void loop() {
