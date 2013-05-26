@@ -10,7 +10,7 @@ const byte SD_CHIP_SELECT = 4;
 
 Decagon5TE sensor(34,35);
 
-//RTC_DS3234 RTC(53);
+RTC_DS3234 RTC(8);
 
 WiFiClient client;
 
@@ -20,6 +20,10 @@ char password[] = "tenretni";
 
 char device_id[] = "v38EB7DD137364CD";
 
+char to_upload_filename[] = "TOUPLOAD.txt";
+char datalog_filename[] = "DATALOG.csv";
+char failed_upload_filename[] = "FAILUPLOAD.txt";
+
 void setup(){
   Serial.begin(1200);
   
@@ -28,16 +32,17 @@ void setup(){
   
   connectToNetwork(ssid, password);
   
-  //RTC.begin();
+  RTC.begin();
   
+  pinMode(53, OUTPUT);
   //RTC.adjust(DateTime(__DATE__, __TIME__));
   
-  SD.remove("toUpload.csv");
-  SD.remove("datalog.csv");
+  //SD.remove("datalog.csv");
+  //SD.remove("fupload.csv");
   
-  /*static char buf[32];
+  static char buf[32];
   Serial.print("Time: ");
-  Serial.println(RTC.now().toString(buf,32));*/
+  Serial.println(RTC.now().toString(buf,32));
   
   Serial.println("Finished Setup");
 }
@@ -45,25 +50,25 @@ void setup(){
 void loop(){
   if (sensor.isReadyForReading()){
     Serial.println("Reading data from sensor...");
-    //static char buf[32];
-    sensor.readData("1/1/70_00:00:00");//RTC.now().toString(buf,32));
+    static char buf[32];
+    sensor.readData(RTC.now().toString(buf,32));
     Serial.println(sensor.getData());
     
-    writeToSDCard(sensor.getUploadData(), "toUpload.csv");
-    writeToSDCard(sensor.getData(), "datalog.csv");
+    writeToSDCard(sensor.getUploadData(), to_upload_filename);
+    writeToSDCard(sensor.getData(), datalog_filename);
     
   }
   else if (connectToNetwork(ssid, password)){
     uploadData();
   }
-  delay(1000);
   
+  delay(1000);
 }
 
 void uploadData() {
   SPI.setDataMode(SPI_MODE0);
     
-    File data_file = SD.open("toUpload.csv", FILE_READ);
+    File data_file = SD.open(to_upload_filename, FILE_READ);
     String to_upload = "";
     
     for (int i = 0; data_file.available(); ++i){
@@ -77,8 +82,8 @@ void uploadData() {
       
       int rand = random(5);
       Serial.println(rand);
-      if (!sendToPushingBox(to_upload) && rand != 3){
-        writeToSDCard(to_upload, "fUpload.csv");
+      if (!sendToPushingBox(to_upload)){// || rand != 3){
+        writeToSDCard(to_upload, failed_upload_filename);
       }
     }
     
@@ -88,10 +93,10 @@ void uploadData() {
 }
 
 void appendFailedUploads() {
-  SD.remove("toUpload.csv");
+  SD.remove(to_upload_filename);
   
-  File failed_file = SD.open("fUpload.csv", FILE_READ);
-  File to_upload_file = SD.open("toUpload.csv", FILE_WRITE);
+  File failed_file = SD.open(failed_upload_filename, FILE_READ);
+  File to_upload_file = SD.open(to_upload_filename, FILE_WRITE);
   
   if (failed_file && to_upload_file){
     while (failed_file.available()){
@@ -102,7 +107,7 @@ void appendFailedUploads() {
   failed_file.close();
   to_upload_file.close();
   
-  SD.remove("fUpload.csv");
+  SD.remove(failed_upload_filename);
 }
 String readFromSDCard(File& read_file){
   String data_string = "";
@@ -115,14 +120,7 @@ String readFromSDCard(File& read_file){
     else if ((int)data != 13){
       data_string += data;
     }
-    /*Serial.print("[");
-    Serial.print((int)data);
-    Serial.print(", ");
-    Serial.print(data);
-    Serial.print("], ");*/  
   }
- 
-  //Serial.print(data_string);
 
   return data_string;
 }
@@ -167,10 +165,9 @@ boolean sendToPushingBox(String data) {
 
   if (client.connect("api.pushingbox.com", 80)) {
     Serial.println(data);
-    //data = "&t=100&p=29.94&c=2.45&tp=22.21";
-    //Serial.println(data);
-    //client.print("GET /pushingbox?devid=v38EB7DD137364CD&t=10&p=10&c=10&tp=10");
-    client.print("GET /pushingbox?devid=v38EB7DD137364CD");
+    //client.print("GET /pushingbox?devid=v38EB7DD137364CD");
+    client.print("GET /pushingbox?devid=");
+    client.print(device_id);
     client.print(data);
     //client.print("&t=100&p=29.48&c=1.38&tp=22.20");
     client.println(" HTTP/1.1");
