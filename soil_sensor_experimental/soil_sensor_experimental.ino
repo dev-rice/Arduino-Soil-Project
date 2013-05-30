@@ -1,62 +1,116 @@
-#include <WiFi.h>
 #include <Decagon5TE.h>
+#include <Reading.h>
+#include <WiFi.h>
 #include <SD.h>
 #include <SPI.h>
+#include <Wire.h>
+#include <RTClib.h>
+#include <RTC_DS3234.h>
 
-Decagon5TE sensor(2, 3, 15000);
-const byte SD_CHIP_SELECT = 4;
-const byte RTC_CHIP_SELECT = 8;
+const byte SD_CHIP_SELECT = 4;  // Constant for SD card reading, should be 4 on WiFi Shield
 
-char TO_UPLOAD_FILENAME[] = "toUpload.txt";
-char FAILED_UPLOAD_FILENAME[] = "fUpload.txt";
-char ARCHIVE_FILENAME[] = "datalog.csv";
+Decagon5TE sensor(1,34,35);  // (Serial Communication Pin, Sensor Excite Pin, Serial Reset Pin);
+Decagon5TE sensor2(2,36,37);
 
-int status = WL_IDLE_STATUS;
+RTC_DS3234 RTC(8);  // Creates a RTC(Real Time Clock) with pin number 8 for SS(Serial Selection)
 
-char device_id[] = "vFB218A4E2233052";
+WiFiClient client;  // Later used to upload data
 
-WiFiClient client;
+byte status = WL_IDLE_STATUS; 
+char ssid[] = "Apartment";  // SSID and password for the network you want to connect to
+char password[] = "tenretni";
+
+char to_upload_filename[] = "TOUP";  // Base filenames for the SD card, appended with
+char datalog_filename[] = "DATALOG";  // corresponding sensor id later on.
+char failed_upload_filename[] = "FAILUP";
 
 void setup(){
-  Serial.begin(1200); // opens serial port, sets data rate to 1200 bps as per the 5TE's spec.
+  Serial.begin(1200);  //Start serial communications for debugging
   
-  RTC_init();
-  SD_init();
+  sensor.begin();  //Assign serial ports to sensors based on passed in value
+  sensor2.begin();  //in the constructor
   
-  //connectToNetwork("Apartment", "tenretni");
+  SPI.begin();  // Initilizes SPI for WiFi shield and RTC
+  SD_init();  
   
-  SD.remove(TO_UPLOAD_FILENAME);
-  SD.remove(FAILED_UPLOAD_FILENAME);
-  SD.remove(ARCHIVE_FILENAME);
-
-  Serial.println(F("-------------------------------"));
+  connectToNetwork(ssid, password);
+  
+  RTC.begin();
+  
+  pinMode(53, OUTPUT);  // This must be done in order for the mega to play nicely with the WiFi Shield
+  //RTC.adjust(DateTime(__DATE__, __TIME__));  // Sets date and time of the RTC to compile time
+                                               // of the program, should only be done if the clock
+                                               // is out of sync.
+                            
+  static char buf[32];  // Standard procedure for reading the time from the RTC
+  Serial.print("Time: ");
+  Serial.println(RTC.now().toString(buf,32));
+  
+  Serial.println("Finished Setup");  // Send out a message to verify everythign set up smoothly.
 }
 
-void loop() {
-  if (sensor.isReadyForReading()){
-    //sensor.setReadingTime(ReadTimeDate());
-    sensor.readData(ReadTimeDate());
-
-    writeToSDCard(sensor.getData(), TO_UPLOAD_FILENAME);
-    writeToSDCard(sensor.getData(), ARCHIVE_FILENAME);
-    delay(500);
-
-    if (connectToNetwork("Apartment", "tenretni")){
-      readToUpload();
-      
-      //uploadData();
-    }
-
-    Serial.println(F("-------------------------------"));
+void loop(){
+  if (sensor.isReadyForReading()){  // If its time to read from this sensor
+    Serial.print("Reading data from sensor ");  
+    Serial.println(sensor.getID());
+    static char buf[32];
+    Reading current_reading = sensor.readData(RTC.now().toString(buf,32)); // Read data and set the timestamp
+    Serial.println(current_reading.toString());  // Display the data
+    
+    writeToSDCard(sensor.getID(), current_reading.toUploadString(), to_upload_filename);  //Write to to_upload
+    writeToSDCard(sensor.getID(),current_reading.toString(), datalog_filename);  // and the datalog
+    
   }
-
-  Serial.println(ReadTimeDate());
-  delay(1000);
+  else if (sensor2.isReadyForReading()){  // Same thing except for the second sensor
+    Serial.print("Reading data from sensor ");
+    Serial.println(sensor2.getID());
+    static char buf[32];
+    Reading current_reading = sensor2.readData(RTC.now().toString(buf,32));
+    Serial.println(current_reading.toString());
+    
+    writeToSDCard(sensor2.getID(), current_reading.toUploadString(), to_upload_filename);
+    writeToSDCard(sensor2.getID(),current_reading.toString(), datalog_filename);
+    
+  }
+  else if (connectToNetwork(ssid, password)){  // If we are not reading from any of the sensors
+    uploadData(sensor.getID());  // Upload our data, this will be optimized for power when this project is designed for 
+    uploadData(sensor2.getID());  // deployability.
+  }
+  
+  delay(5000);  // Wait some time to make sure we don't break anything.
 }
 
-boolean writeToSDCard(String dataString, char filename[]){
-  SPI.setDataMode(SPI_MODE1);
+//-------------
+// SD Stuff
+//-------------
 
+String readFromSDCard(File& read_file){  // Reads one line at a time from the file and gives it back as a string
+  String data_string = "";
+  char data = '/0';
+  while (read_file.available()){
+    data = read_file.read();
+    if ((int)data == 10){
+      break;
+    }
+    else if ((int)data != 13){
+      data_string += data;
+    }
+  }
+  
+  return data_string;
+}
+
+boolean writeToSDCard(byte sensor_id, String data_string, char filename[]){  // Writes to the corresponding file based on the sensor
+  String temp_filename = filename;                                           // ID.
+  temp_filename += sensor_id;
+  temp_filename += ".csv";
+  
+  char name_buffer[32];
+  temp_filename.toCharArray(name_buffer, 32);
+  filename = name_buffer;
+  
+  SPI.setDataMode(SPI_MODE1);
+  
   Serial.print(F("I'm going to write to "));
   Serial.println(filename);
 
@@ -69,8 +123,8 @@ boolean writeToSDCard(String dataString, char filename[]){
 
   // if the file is available, write to it:
   if (dataFile) {
-    dataFile.println(dataString);
-    Serial.println(dataString);
+    dataFile.println(data_string);
+    Serial.println(data_string);
     dataFile.close();
     return true;
     // print to the serial port too:
@@ -78,213 +132,45 @@ boolean writeToSDCard(String dataString, char filename[]){
   // if the file isn't open, pop up an error:
   else {
     Serial.print(F("error opening "));
-    Serial.println(TO_UPLOAD_FILENAME);
-    dataFile.close();
+    Serial.println(filename);
+    dataFile.close();  // always close the file
     return false;
   }
-
 }
 
-void appendFailedUploads(){
-  Serial.print("Deleting ");
-  Serial.println(TO_UPLOAD_FILENAME);
-  SD.remove(TO_UPLOAD_FILENAME);
+void appendFailedUploads(byte sensor_id) {  // Takes any data in the failed upload file and moves them to the to upload file
+  String temp_filename = to_upload_filename;
+  temp_filename += sensor_id;
+  temp_filename += ".csv";
   
-  File failed_upload_file = SD.open(FAILED_UPLOAD_FILENAME, FILE_READ);
-  File to_upload_file = SD.open(TO_UPLOAD_FILENAME, FILE_WRITE);
-
-  delay(500);
-
-  if (to_upload_file && failed_upload_file){
-    while (failed_upload_file.available()){
-      to_upload_file.print((char)failed_upload_file.read());
+  char to_up_buffer[32];
+  temp_filename.toCharArray(to_up_buffer, 32);
+  
+  temp_filename = failed_upload_filename;
+  temp_filename += sensor_id;
+  temp_filename += ".csv";
+  
+  char f_up_buffer[32];
+  temp_filename.toCharArray(f_up_buffer, 32);
+  
+  SD.remove(to_up_buffer);
+  
+  File failed_file = SD.open(f_up_buffer, FILE_READ);
+  File to_upload_file = SD.open(to_up_buffer, FILE_WRITE);
+  
+  if (failed_file && to_upload_file){
+    while (failed_file.available()){
+      to_upload_file.print((char)failed_file.read());
     }
-  }
-  else {
-    Serial.println("Failed to open the files.");
-  }
-
-  to_upload_file.close();
-  failed_upload_file.close();
-  SD.remove(FAILED_UPLOAD_FILENAME);
-}
-
-void readToUpload() {
-  File to_upload_file = SD.open(TO_UPLOAD_FILENAME, FILE_READ);
-  if (to_upload_file){
-    Serial.print("Reading from ");
-    Serial.println(TO_UPLOAD_FILENAME);
-    while (to_upload_file.available()){
-      Serial.print((char)to_upload_file.read());
-    }
-  }
-  else {
-    Serial.print("Can't open ");
-    Serial.println(TO_UPLOAD_FILENAME);
-  }
-  to_upload_file.close();
-  SD.remove(TO_UPLOAD_FILENAME);
-}
-
-double parseDouble(){
-}
-
-void uploadData(){
-  File to_upload_file = SD.open(TO_UPLOAD_FILENAME, FILE_READ);
+  }   
   
-  delay(500);
-  if (to_upload_file) {
-    while (to_upload_file.available()){
-      
-      Serial.print("Reading from ");
-      Serial.println(TO_UPLOAD_FILENAME);
-      
-      String timestamp = "";
-      String permittivity = "";
-      String conductivity = "";
-      String temperature = "";
-      
-      while(char data = to_upload_file.read() != ',' && to_upload_file.available()){
-        if (data == ',' || !to_upload_file.available()){
-          break;
-        }
-        Serial.print((int)data);
-        timestamp += data;
-      }
-      
-      if (!to_upload_file.available()){
-        Serial.println("Reached end of file.");
-        break;
-      }
-      
-      Serial.print(F("Timestamp: "));
-      Serial.println(timestamp);
-      
-      while(char data = to_upload_file.read()){
-        if (data == ','){
-          break;
-        }
-        permittivity += data;
-      }
-      Serial.print(F("Permittivity: "));
-      Serial.println(permittivity);
-      
-      while(char data = to_upload_file.read()){
-        if (data == ','){
-          break;
-        }
-        conductivity += data;
-      }
-  
-      Serial.print(F("Conductivity: "));
-      Serial.println(conductivity);
-      
-      while(char data = to_upload_file.read()){
-        if (data == ','){
-          break;
-        }
-      temperature += data;
-      }
-      Serial.print(F("Temperature: "));
-      Serial.println(temperature);
-  
-      String data = "&permittivity=";
-      data += permittivity;
-      data += "&conductivity=";
-      data += conductivity;
-      data += "&temperature=";
-      data += temperature;
-
-      if (false){
-        String failedUploadString = permittivity + "," + conductivity + "," + temperature;
-        writeToSDCard(failedUploadString, FAILED_UPLOAD_FILENAME);
-      }
-    }
-  }
+  failed_file.close();
   to_upload_file.close();
   
-  appendFailedUploads();
+  SD.remove(f_up_buffer);
 }
 
-boolean sendToPushingBox(String data) {
-
-  Serial.println(F("I'm going to upload to the spreadsheet"));
-
-  boolean success = false;
-
-  Serial.println(F("Starting connection to server..."));
-
-  if (client.connect("api.pushingbox.com", 80)) {
-    Serial.println(F("connected to server"));
-    // Make a HTTP request of the form:
-    //client.println("GET /pushingbox?devid=vFB218A4E2233052&permittivity=1.52&conductivity=23.02 HTTP/1.1");
-    client.print("GET /pushingbox?devid=");
-    client.print(device_id);
-    client.print(data);
-    client.println(" HTTP/1.1");
-    client.println("Host: api.pushingbox.com");
-    client.println("Connection: close");
-    client.println();
-
-    success = true;
-    Serial.println(F("Upload Successful"));
-  }
-  else {
-    success = false;
-    Serial.println(F("Upload Failed"));
-  }
-
-  client.flush();
-  client.stop();
-
-  return success;
-}
-
-boolean connectToNetwork(char ssid[], char password[]){
-  status = WiFi.status();
-
-  if (WiFi.status() == WL_NO_SHIELD) {
-    Serial.println(F("WiFi shield not present"));
-    // don't continue:
-    while(true);
-  }
-  int failures = 0;
-  // attempt to connect to Wifi network:
-  while (status != WL_CONNECTED && failures < 2) {
-    //Serial.println(failures);
-    Serial.print(F("Attempting to connect to WPA SSID: "));
-    Serial.println(ssid);
-    // Connect to WPA/WPA2 network:
-    status = WiFi.begin(ssid, password);
-    ++failures;
-  }
-  if (status) {
-    Serial.print(F("Connected to "));
-    Serial.println(WiFi.SSID());
-  }
-  return status;
-}
-
-String doubleToString(double input){
-  char input_buffer[10] = {'/0'};
-  return dtostrf(input, 2, 2, input_buffer);
-}
-
-int RTC_init(){
-  pinMode(RTC_CHIP_SELECT,OUTPUT); // chip select
-  // start the SPI library:
-  SPI.begin();
-  SPI.setBitOrder(MSBFIRST);
-  SPI.setDataMode(SPI_MODE1); // both mode 1 & 3 should work
-  //set control register
-  digitalWrite(RTC_CHIP_SELECT, LOW);
-  SPI.transfer(0x8E);
-  SPI.transfer(0x60); //60= disable Osciallator and Battery SQ wave @1hz, temp compensation, Alarms disabled
-  digitalWrite(RTC_CHIP_SELECT, HIGH);
-  delay(10);
-}
-
-boolean SD_init(){
+boolean SD_init(){  // Starts the SD card and gets it ready for communication
   SPI.setDataMode(SPI_MODE0);
   Serial.println(F("Initializing SD card..."));
   // make sure that the default chip select pin is set to
@@ -301,53 +187,115 @@ boolean SD_init(){
   return true;
 }
 
-String ReadTimeDate(){
-  SPI.setDataMode(SPI_MODE1);
-  String temp;
-  int TimeDate [7]; //second,minute,hour,null,day,month,year
-  for(int i=0; i<=6;i++){
-    if(i==3)
-    i++;
-    digitalWrite(RTC_CHIP_SELECT, LOW);
-    SPI.transfer(i+0x00);
-    unsigned int n = SPI.transfer(0x00);
-    digitalWrite(RTC_CHIP_SELECT, HIGH);
-    int a=n & B00001111;
-    if(i==2){
-      int b=(n & B00110000)>>4; //24 hour mode
-      if(b==B00000010)
-        b=20;
-      else if(b==B00000001)
-        b=10;
-      TimeDate[i]=a+b;
-    }
-    else if(i==4){
-      int b=(n & B00110000)>>4;
-      TimeDate[i]=a+b*10;
-    }
-    else if(i==5){
-      int b=(n & B00010000)>>4;
-      TimeDate[i]=a+b*10;
-    }
-    else if(i==6){
-      int b=(n & B11110000)>>4;
-      TimeDate[i]=a+b*10;
-    }
-    else{
-      int b=(n & B01110000)>>4;
-      TimeDate[i]=a+b*10;
+//---------------
+// Server Stuff
+//---------------
+
+void uploadData(byte sensor_id) {  // Mainly prepares the data for uploading
+  Serial.print("I'm going to upload data from sensor ");
+  Serial.println(sensor_id);
+  
+  SPI.setDataMode(SPI_MODE0);
+  
+  String temp_filename = to_upload_filename;
+  temp_filename += sensor_id;
+  temp_filename += ".csv";
+  
+  char filename[32];
+  temp_filename.toCharArray(filename, 32);
+    
+  File data_file = SD.open(filename, FILE_READ);  // Open the to upload file corresponding to the sensor id
+  String to_upload = "";
+    
+  for (int i = 0; data_file.available(); ++i){
+    to_upload = readFromSDCard(data_file);
+    Serial.print("Entry ");
+    Serial.print(i);
+    Serial.println(":");
+      
+    Serial.print('\t');
+    Serial.println(to_upload);
+      
+    int rand = random(5);
+    Serial.println(rand);
+    if (!sendToPushingBox(to_upload, sensor_id)){  // If for some reason we can't upload it
+      writeToSDCard(sensor_id, to_upload, failed_upload_filename);  // Write to the corresponding failed upload file
     }
   }
-  temp.concat(TimeDate[4]);
-  temp.concat("/") ;
-  temp.concat(TimeDate[5]);
-  temp.concat("/") ;
-  temp.concat(TimeDate[6]);
-  temp.concat(" ") ;
-  temp.concat(TimeDate[2]);
-  temp.concat(":") ;
-  temp.concat(TimeDate[1]);
-  temp.concat(":") ;
-  temp.concat(TimeDate[0]);
-  return(temp);
+    
+  data_file.close();
+  appendFailedUploads(sensor_id);
+  Serial.println("-----------------------");
 }
+
+boolean sendToPushingBox(String data, byte sensor_id) {
+  
+  String device_id = "";
+  
+  if (sensor_id == 1){
+    device_id = "vC37774D3FBABA5E";  // Translates sensor ids to device ids for pushing box, determines which
+  }                                  // spreadsheet the data will upload to.
+  else if (sensor_id == 2){
+    device_id = "v6CD616D7EAFCC88";
+  }
+  
+  Serial.println(F("I'm going to upload to the spreadsheet"));
+
+  boolean success = false;
+
+  Serial.println(F("Starting connection to server..."));
+
+  if (client.connect("api.pushingbox.com", 80)) {
+    Serial.println(data);
+    client.print("GET /pushingbox?devid=");
+    client.print(device_id);
+    client.print(data);
+    client.println(" HTTP/1.1");
+    client.println("Host:api.pushingbox.com");
+    client.println("Connection: close");
+    client.println();
+
+    success = true;
+    Serial.println(F("Upload Successful"));
+  }
+  else {
+    success = false;
+    Serial.println(F("Upload Failed"));
+  }
+
+  client.flush();  // This must be done or else the server hates it and kicks you.
+  client.stop();
+
+  delay(2500);
+
+  return success;  // Did it work?
+}
+
+boolean connectToNetwork(char ssid[], char password[]){
+  status = WiFi.status();
+
+  if (WiFi.status() == WL_NO_SHIELD) {
+    Serial.println(F("WiFi shield not present"));
+    // don't continue:
+    return false;
+  }
+  int failures = 0;
+  // attempt to connect to Wifi network:
+  while (status != WL_CONNECTED && failures < 2) {
+    //Serial.println(failures);
+    Serial.print(F("Attempting to connect to WPA SSID: "));
+    Serial.println(ssid);
+    // Connect to WPA/WPA2 network:
+    status = WiFi.begin(ssid, password);
+    ++failures;
+  }
+  if (failures > 2){
+    return false;
+  }
+  else if (status == WL_CONNECTED) {
+    Serial.print(F("Connected to "));
+    Serial.println(WiFi.SSID());
+  }
+  return status;
+}
+

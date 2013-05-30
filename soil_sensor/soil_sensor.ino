@@ -1,4 +1,5 @@
 #include <Decagon5TE.h>
+#include <Reading.h>
 #include <WiFi.h>
 #include <SD.h>
 #include <SPI.h>
@@ -51,11 +52,11 @@ void loop(){
   if (sensor.isReadyForReading()){
     Serial.println("Reading data from sensor...");
     static char buf[32];
-    sensor.readData(RTC.now().toString(buf,32));
-    Serial.println(sensor.getData());
+    //sensor.readData(RTC.now().toString(buf,32));
+    //Serial.println(sensor.getData());
     
-    writeToSDCard(sensor.getUploadData(), to_upload_filename);
-    writeToSDCard(sensor.getData(), datalog_filename);
+    //writeToSDCard(sensor.getUploadData(), to_upload_filename);
+    //writeToSDCard(sensor.getData(), datalog_filename);
     
   }
   else if (connectToNetwork(ssid, password)){
