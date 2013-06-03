@@ -17,7 +17,7 @@ RTC_DS3234 RTC(8);  // Creates a RTC(Real Time Clock) with pin number 8 for SS(S
 WiFiClient client;  // Later used to upload data
 
 byte status = WL_IDLE_STATUS; 
-char ssid[] = "Apartment";  // SSID and password for the network you want to connect to
+char ssid[] = "MinesParkWireless";  // SSID and password for the network you want to connect to
 char password[] = "tenretni";
 
 char to_upload_filename[] = "TOUP";  // Base filenames for the SD card, appended with
@@ -33,11 +33,8 @@ void setup(){
   SPI.begin();  // Initilizes SPI for WiFi shield and RTC
   SD_init();  
   
-  connectToNetwork(ssid, password);
-  
   RTC.begin();
   
-  pinMode(53, OUTPUT);  // This must be done in order for the mega to play nicely with the WiFi Shield
   //RTC.adjust(DateTime(__DATE__, __TIME__));  // Sets date and time of the RTC to compile time
                                                // of the program, should only be done if the clock
                                                // is out of sync.
@@ -45,6 +42,10 @@ void setup(){
   static char buf[32];  // Standard procedure for reading the time from the RTC
   Serial.print("Time: ");
   Serial.println(RTC.now().toString(buf,32));
+  
+  connectToNetwork(ssid, password);
+  
+  pinMode(53, OUTPUT);  // This must be done in order for the mega to play nicely with the WiFi Shield
   
   Serial.println("Finished Setup");  // Send out a message to verify everythign set up smoothly.
 }
@@ -233,13 +234,17 @@ boolean sendToPushingBox(String data, byte sensor_id) {
   String device_id = "";
   
   if (sensor_id == 1){
-    device_id = "vC37774D3FBABA5E";  // Translates sensor ids to device ids for pushing box, determines which
+    device_id = "vC2E175501BCD490";  // Translates sensor ids to device ids for pushing box, determines which
   }                                  // spreadsheet the data will upload to.
   else if (sensor_id == 2){
-    device_id = "v6CD616D7EAFCC88";
+    device_id = "v255DF91CB8DE917";
   }
   
   Serial.println(F("I'm going to upload to the spreadsheet"));
+
+  Serial.print("api.pushingbox.com/pushingbox?devid=");
+  Serial.print(device_id);
+  Serial.println(data);
 
   boolean success = false;
 
@@ -286,7 +291,8 @@ boolean connectToNetwork(char ssid[], char password[]){
     Serial.print(F("Attempting to connect to WPA SSID: "));
     Serial.println(ssid);
     // Connect to WPA/WPA2 network:
-    status = WiFi.begin(ssid, password);
+    status = WiFi.begin(ssid);
+    //status = WiFi.begin(ssid, password);
     ++failures;
   }
   if (failures > 2){
