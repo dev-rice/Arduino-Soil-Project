@@ -15,8 +15,8 @@ RTC_DS3234 RTC(8);
 WiFiClient client;
 
 byte status = WL_IDLE_STATUS;
-char ssid[] = "Apartment";
-char password[] = "tenretni";
+char ssid[] = "";
+char password[] = "";
 
 char device_id[] = "v38EB7DD137364CD";
 
